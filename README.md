@@ -20,15 +20,9 @@ brew tap ozankasikci/tap
 brew install --cask agent-sessions
 ```
 
-### Manual
+### DMG
 
 Download the latest DMG from [Releases](https://github.com/ozankasikci/agent-sessions/releases).
-
-## Development
-
-```bash
-npm run tauri dev
-```
 
 ## Tech Stack
 
