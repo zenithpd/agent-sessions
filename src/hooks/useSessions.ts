@@ -11,6 +11,14 @@ export function useSessions() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const updateTrayTitle = useCallback(async (total: number, waiting: number) => {
+    try {
+      await invoke('update_tray_title', { total, waiting });
+    } catch (err) {
+      console.error('Failed to update tray title:', err);
+    }
+  }, []);
+
   const fetchSessions = useCallback(async () => {
     try {
       const response = await invoke<SessionsResponse>('get_all_sessions');
@@ -18,12 +26,15 @@ export function useSessions() {
       setTotalCount(response.totalCount);
       setWaitingCount(response.waitingCount);
       setError(null);
+
+      // Update tray icon title with counts
+      await updateTrayTitle(response.totalCount, response.waitingCount);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [updateTrayTitle]);
 
   const focusSession = useCallback(async (session: Session) => {
     try {
