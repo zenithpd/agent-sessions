@@ -7,15 +7,21 @@ interface SessionCardProps {
 
 const statusConfig = {
   waiting: {
-    color: 'bg-yellow-500',
-    label: 'Waiting',
+    color: 'bg-amber-400',
+    bgColor: 'bg-amber-400/10',
+    borderColor: 'border-amber-400/20',
+    label: 'Waiting for input',
   },
   processing: {
-    color: 'bg-green-500',
+    color: 'bg-emerald-400',
+    bgColor: 'bg-emerald-400/10',
+    borderColor: 'border-emerald-400/20',
     label: 'Processing',
   },
   idle: {
-    color: 'bg-gray-500',
+    color: 'bg-white/30',
+    bgColor: 'bg-white/5',
+    borderColor: 'border-white/10',
     label: 'Idle',
   },
 };
@@ -36,14 +42,9 @@ function formatTimeAgo(timestamp: string): string {
   return `${diffDays}d ago`;
 }
 
-function truncatePath(path: string, maxLength: number = 30): string {
-  if (path.length <= maxLength) return path;
-
+function truncatePath(path: string): string {
   // Replace home dir with ~
-  const homePath = path.replace(/^\/Users\/[^/]+/, '~');
-  if (homePath.length <= maxLength) return homePath;
-
-  return '...' + homePath.slice(-(maxLength - 3));
+  return path.replace(/^\/Users\/[^/]+/, '~');
 }
 
 export function SessionCard({ session, onClick }: SessionCardProps) {
@@ -52,39 +53,49 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
   return (
     <button
       onClick={onClick}
-      className="w-full text-left p-3 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg border border-[#2a2a2a] transition-colors cursor-pointer"
+      className={`w-full text-left p-4 rounded-xl border transition-all duration-200 cursor-pointer group
+        ${config.bgColor} ${config.borderColor} hover:border-white/20 hover:bg-white/10`}
     >
-      {/* Header: Status + Name + Branch */}
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`w-2 h-2 rounded-full ${config.color}`} />
-        <span className="font-medium text-sm text-white truncate flex-1">
-          {session.projectName}
-        </span>
-        {session.gitBranch && (
-          <span className="text-xs text-gray-500 truncate max-w-[80px]">
+      {/* Header: Project name */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-base text-white truncate group-hover:text-white">
+            {session.projectName}
+          </h3>
+          <p className="text-xs text-white/40 truncate mt-0.5">
+            {truncatePath(session.projectPath)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`w-2 h-2 rounded-full ${config.color}`} />
+        </div>
+      </div>
+
+      {/* Git branch */}
+      {session.gitBranch && (
+        <div className="flex items-center gap-1.5 mb-3">
+          <svg className="w-3.5 h-3.5 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span className="text-xs text-white/50 truncate">
             {session.gitBranch}
           </span>
-        )}
-      </div>
-
-      {/* Path */}
-      <div className="text-xs text-gray-500 mb-2 truncate">
-        {truncatePath(session.projectPath)}
-      </div>
-
-      {/* Message Preview */}
-      {session.lastMessage && (
-        <div className="text-xs text-gray-400 mb-2 line-clamp-2 italic">
-          "{session.lastMessage}"
         </div>
       )}
 
-      {/* Status + Time */}
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-gray-500">
+      {/* Message Preview */}
+      {session.lastMessage && (
+        <div className="text-sm text-white/60 mb-3 line-clamp-2 leading-relaxed">
+          {session.lastMessage}
+        </div>
+      )}
+
+      {/* Footer: Status + Time */}
+      <div className="flex items-center justify-between text-xs pt-2 border-t border-white/5">
+        <span className="text-white/40">
           {config.label}
         </span>
-        <span className="text-gray-600">
+        <span className="text-white/30">
           {formatTimeAgo(session.lastActivityAt)}
         </span>
       </div>

@@ -7,16 +7,8 @@ interface SessionGridProps {
 }
 
 export function SessionGrid({ sessions, onSessionClick }: SessionGridProps) {
-  if (sessions.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-40 text-gray-500 text-sm">
-        No active Claude sessions
-      </div>
-    );
-  }
-
   return (
-    <div className="grid grid-cols-2 gap-2 p-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {sessions.map((session) => (
         <SessionCard
           key={session.id}
