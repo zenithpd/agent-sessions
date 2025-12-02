@@ -8,10 +8,10 @@ MOUNT_POINT="/Volumes/${APP_NAME}"
 echo "🔄 Installing ${APP_NAME}..."
 
 # Kill running instance
-if pgrep -x "${APP_NAME}" > /dev/null; then
+if pgrep -f "${APP_NAME}" > /dev/null; then
     echo "⏹️  Stopping running instance..."
-    pkill -x "${APP_NAME}"
-    sleep 1
+    pkill -f "${APP_NAME}"
+    sleep 2
 fi
 
 # Unmount if already mounted
