@@ -269,6 +269,17 @@ fn find_session_for_process(jsonl_files: &[PathBuf], project_path: &str, process
 }
 
 fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &ClaudeProcess) -> Option<Session> {
+    use std::time::{Duration, SystemTime};
+
+    // Check if the file was modified very recently (indicates active processing)
+    let file_recently_modified = jsonl_path
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .map(|d| d < Duration::from_secs(3))
+        .unwrap_or(false);
+
     // Parse the JSONL file to get session info
     let file = File::open(jsonl_path).ok()?;
     let reader = BufReader::new(file);
@@ -280,6 +291,7 @@ fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Claude
     let mut last_role = None;
     let mut last_msg_type = None;
     let mut last_has_tool_use = false;
+    let mut last_has_tool_result = false;
     let mut found_status_info = false;
 
     // Read last N lines for efficiency
@@ -312,6 +324,7 @@ fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Claude
                             last_msg_type = msg.msg_type.clone();
                             last_role = content.role.clone();
                             last_has_tool_use = has_tool_use(c);
+                            last_has_tool_result = has_tool_result(c);
                             found_status_info = true;
                         }
                     }
@@ -352,10 +365,12 @@ fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Claude
 
     let session_id = session_id?;
 
-    // Determine status based on message type and content
+    // Determine status based on message type, content, and file activity
     let status = determine_status(
         last_msg_type.as_deref(),
         last_has_tool_use,
+        last_has_tool_result,
+        file_recently_modified,
     );
 
     // Extract project name from path
@@ -403,27 +418,57 @@ fn status_sort_priority(status: &SessionStatus) -> u8 {
 fn determine_status(
     last_msg_type: Option<&str>,
     has_tool_use: bool,
+    has_tool_result: bool,
+    file_recently_modified: bool,
 ) -> SessionStatus {
     // Determine status based on the last message in the conversation:
+    // - If file is being actively modified (within last 3s) -> active state (Thinking or Processing)
+    // - If last message is user with tool_result -> Processing (tool just ran, Claude processing result)
     // - If last message is from assistant with tool_use -> Processing (tool is being executed)
     // - If last message is from assistant with only text -> Waiting (Claude finished, waiting for user)
     // - If last message is from user -> Thinking (Claude is generating a response)
+
+    // Key insight: if the file was modified very recently, Claude is actively working
+    // and we should NOT show "Waiting" even if the last written message was assistant text
 
     match last_msg_type {
         Some("assistant") => {
             if has_tool_use {
                 // Assistant sent a tool_use, tool is executing
                 SessionStatus::Processing
+            } else if file_recently_modified {
+                // File is being actively modified but last message is text
+                // Claude is likely still streaming or about to send more
+                SessionStatus::Thinking
             } else {
-                // Assistant sent a text response, waiting for user input
+                // Assistant sent a text response and file is stable - waiting for user
                 SessionStatus::Waiting
             }
         }
         Some("user") => {
-            // User sent input (or tool_result), Claude is thinking/generating response
-            SessionStatus::Thinking
+            if has_tool_result {
+                // User message contains tool_result - tool execution complete,
+                // Claude is processing the result
+                if file_recently_modified {
+                    SessionStatus::Thinking
+                } else {
+                    // Tool result was sent but file not recently modified
+                    // This can happen if tool result was recent - show Processing
+                    SessionStatus::Processing
+                }
+            } else {
+                // Regular user input, Claude is thinking/generating response
+                SessionStatus::Thinking
+            }
         }
-        _ => SessionStatus::Idle,
+        _ => {
+            // No recognized message type - check if file is active
+            if file_recently_modified {
+                SessionStatus::Thinking
+            } else {
+                SessionStatus::Idle
+            }
+        }
     }
 }
 
