@@ -127,12 +127,12 @@ pub fn get_sessions() -> SessionsResponse {
     let claude_processes = find_claude_processes();
     let mut sessions = Vec::new();
 
-    // Build a map of cwd -> process for matching
-    let mut cwd_to_process: HashMap<String, &ClaudeProcess> = HashMap::new();
+    // Build a map of cwd -> list of processes (multiple sessions can run in same folder)
+    let mut cwd_to_processes: HashMap<String, Vec<&ClaudeProcess>> = HashMap::new();
     for process in &claude_processes {
         if let Some(cwd) = &process.cwd {
             let cwd_str = cwd.to_string_lossy().to_string();
-            cwd_to_process.insert(cwd_str, process);
+            cwd_to_processes.entry(cwd_str).or_default().push(process);
         }
     }
 
@@ -158,28 +158,27 @@ pub fn get_sessions() -> SessionsResponse {
             }
 
             // Convert directory name back to path
-            // Directory names use "-" as path separator, but project names can also contain "-"
-            // Format: -Users-ozan-Projects-project-name becomes /Users/ozan/Projects/project-name
-            // We need to be smarter about this conversion
             let dir_name = path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
 
-            // The directory name starts with "-" and uses "-" to separate path components
-            // But we can't just replace all "-" because project names contain dashes
-            // Instead, we'll look for patterns like "-Users-" and "-Projects-" etc.
             let project_path = convert_dir_name_to_path(dir_name);
 
-            // Check if this project has an active Claude process
-            let process = cwd_to_process.get(&project_path);
-            if process.is_none() {
-                continue; // Skip projects without active processes
-            }
-            let process = process.unwrap();
+            // Check if this project has active Claude processes
+            let processes = match cwd_to_processes.get(&project_path) {
+                Some(p) => p,
+                None => continue, // Skip projects without active processes
+            };
 
-            // Find the most recent JSONL file
-            if let Some(session) = find_active_session(&path, &project_path, process) {
-                sessions.push(session);
+            // Find all JSONL files that were recently modified (within last 30 seconds)
+            // These are likely the active sessions
+            let jsonl_files = get_recently_active_jsonl_files(&path, processes.len());
+
+            // Match processes to JSONL files
+            for (index, process) in processes.iter().enumerate() {
+                if let Some(session) = find_session_for_process(&jsonl_files, &project_path, process, index) {
+                    sessions.push(session);
+                }
             }
         }
     }
@@ -210,28 +209,68 @@ pub fn get_sessions() -> SessionsResponse {
     }
 }
 
-fn find_active_session(project_dir: &PathBuf, project_path: &str, process: &ClaudeProcess) -> Option<Session> {
-    // Find the most recently modified JSONL file
+/// Get JSONL files that are likely active sessions
+/// Takes the expected count of active processes and returns the most recently modified files
+fn get_recently_active_jsonl_files(project_dir: &PathBuf, expected_count: usize) -> Vec<PathBuf> {
+    use std::time::{Duration, SystemTime};
+
+    let now = SystemTime::now();
+    let recent_threshold = Duration::from_secs(60); // Consider files modified in last 60 seconds as potentially active
+
     let mut jsonl_files: Vec<_> = fs::read_dir(project_dir)
-        .ok()?
+        .into_iter()
+        .flatten()
         .flatten()
         .filter(|e| {
             e.path().extension()
                 .map(|ext| ext == "jsonl")
                 .unwrap_or(false)
         })
+        .filter_map(|e| {
+            let path = e.path();
+            let modified = e.metadata().and_then(|m| m.modified()).ok()?;
+            Some((path, modified))
+        })
         .collect();
 
-    jsonl_files.sort_by(|a, b| {
-        let time_a = a.metadata().and_then(|m| m.modified()).ok();
-        let time_b = b.metadata().and_then(|m| m.modified()).ok();
-        time_b.cmp(&time_a)
-    });
+    // Sort by modification time (newest first)
+    jsonl_files.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let jsonl_path = jsonl_files.first()?.path();
+    // First, try to get recently modified files (within threshold)
+    let recent_files: Vec<PathBuf> = jsonl_files
+        .iter()
+        .filter(|(_, modified)| {
+            now.duration_since(*modified)
+                .map(|d| d < recent_threshold)
+                .unwrap_or(false)
+        })
+        .map(|(path, _)| path.clone())
+        .collect();
 
+    // If we have enough recent files, use those
+    if recent_files.len() >= expected_count {
+        return recent_files.into_iter().take(expected_count).collect();
+    }
+
+    // Otherwise, just take the N most recently modified files
+    jsonl_files
+        .into_iter()
+        .take(expected_count)
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// Find a session for a specific process from available JSONL files
+/// Takes the index to pick different files for different processes
+fn find_session_for_process(jsonl_files: &[PathBuf], project_path: &str, process: &ClaudeProcess, index: usize) -> Option<Session> {
+    // Get the JSONL file at the given index (they're sorted by most recent first)
+    let jsonl_path = jsonl_files.get(index)?;
+    parse_session_file(jsonl_path, project_path, process)
+}
+
+fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &ClaudeProcess) -> Option<Session> {
     // Parse the JSONL file to get session info
-    let file = File::open(&jsonl_path).ok()?;
+    let file = File::open(jsonl_path).ok()?;
     let reader = BufReader::new(file);
 
     let mut session_id = None;
