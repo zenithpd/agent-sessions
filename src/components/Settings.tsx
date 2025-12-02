@@ -5,7 +5,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -119,39 +118,34 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-[320px] gap-6">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Configure your Claude Sessions preferences
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              Global Hotkey
-            </label>
-            <div
-              className={`flex items-center justify-center h-12 rounded-lg border cursor-pointer transition-all ${
-                isRecording
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-secondary/50 text-foreground hover:border-primary/50'
-              }`}
-              onClick={() => setIsRecording(true)}
-            >
-              <span className="text-sm font-medium">
-                {isRecording ? (
-                  recordedKeys.length > 0 ? recordedKeys.join(' + ') : 'Press keys...'
-                ) : (
-                  hotkey || 'Click to set hotkey'
-                )}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Click and press your desired key combination
-            </p>
+        <div className="space-y-3">
+          <label className="text-sm font-medium text-foreground">
+            Global Hotkey
+          </label>
+          <div
+            className={`flex items-center justify-center h-11 rounded-lg border cursor-pointer transition-colors ${
+              isRecording
+                ? 'border-foreground/50 bg-foreground/5'
+                : 'border-border bg-muted/50 hover:border-muted-foreground/50'
+            }`}
+            onClick={() => setIsRecording(true)}
+          >
+            <span className="text-sm text-foreground">
+              {isRecording ? (
+                recordedKeys.length > 0 ? recordedKeys.join(' + ') : 'Press keys...'
+              ) : (
+                hotkey || 'Click to set hotkey'
+              )}
+            </span>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Click and press your desired key combination
+          </p>
 
           {error && (
             <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
@@ -160,17 +154,17 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
           )}
 
           {saved && (
-            <div className="p-3 rounded-lg bg-status-processing/10 border border-status-processing/20 text-status-processing text-sm">
-              Hotkey saved!
+            <div className="p-3 rounded-lg bg-emerald-400/10 border border-emerald-400/20 text-emerald-400 text-sm">
+              Hotkey saved
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={handleClear}>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={handleClear}>
             Clear
           </Button>
-          <Button onClick={handleSave}>
+          <Button size="sm" onClick={handleSave}>
             Save
           </Button>
         </DialogFooter>
