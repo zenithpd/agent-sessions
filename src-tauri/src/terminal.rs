@@ -1,15 +1,37 @@
 use std::process::Command;
 
 pub fn focus_terminal_for_pid(pid: u32) -> Result<(), String> {
+    // First, get the TTY for this process
+    let tty = get_tty_for_pid(pid)?;
+
     // Try iTerm2 first, then Terminal.app
-    if focus_iterm(pid).is_ok() {
+    if focus_iterm_by_tty(&tty).is_ok() {
         return Ok(());
     }
 
-    focus_terminal_app(pid)
+    focus_terminal_app_by_tty(&tty)
 }
 
-fn focus_iterm(pid: u32) -> Result<(), String> {
+/// Get the TTY device for a given PID using ps command
+fn get_tty_for_pid(pid: u32) -> Result<String, String> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "tty="])
+        .output()
+        .map_err(|e| format!("Failed to get TTY: {}", e))?;
+
+    if output.status.success() {
+        let tty = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if tty.is_empty() || tty == "??" {
+            Err("Process has no TTY".to_string())
+        } else {
+            Ok(tty)
+        }
+    } else {
+        Err("Failed to get TTY for process".to_string())
+    }
+}
+
+fn focus_iterm_by_tty(tty: &str) -> Result<(), String> {
     let script = format!(r#"
         tell application "System Events"
             if not (exists process "iTerm2") then
@@ -23,19 +45,22 @@ fn focus_iterm(pid: u32) -> Result<(), String> {
                 repeat with t in tabs of w
                     repeat with s in sessions of t
                         if tty of s contains "{}" then
+                            select s
                             select t
-                            return
+                            set index of w to 1
+                            return "found"
                         end if
                     end repeat
                 end repeat
             end repeat
         end tell
-    "#, pid);
+        return "not found"
+    "#, tty);
 
     execute_applescript(&script)
 }
 
-fn focus_terminal_app(pid: u32) -> Result<(), String> {
+fn focus_terminal_app_by_tty(tty: &str) -> Result<(), String> {
     let script = format!(r#"
         tell application "Terminal"
             activate
@@ -43,22 +68,19 @@ fn focus_terminal_app(pid: u32) -> Result<(), String> {
             repeat with w in windows
                 repeat with t in tabs of w
                     try
-                        set tabProcesses to processes of t
-                        repeat with p in tabProcesses
-                            if p contains "{}" then
-                                set selected of t to true
-                                set index of w to 1
-                                set targetFound to true
-                                exit repeat
-                            end if
-                        end repeat
+                        if tty of t contains "{}" then
+                            set selected of t to true
+                            set index of w to 1
+                            set targetFound to true
+                            exit repeat
+                        end if
                     end try
                     if targetFound then exit repeat
                 end repeat
                 if targetFound then exit repeat
             end repeat
         end tell
-    "#, pid);
+    "#, tty);
 
     execute_applescript(&script)
 }
@@ -79,23 +101,29 @@ fn execute_applescript(script: &str) -> Result<(), String> {
 }
 
 pub fn focus_terminal_by_path(path: &str) -> Result<(), String> {
-    // Fallback: focus by working directory path
+    // Fallback: focus by matching session name (which often contains the path) in iTerm2
     let script = format!(r#"
-        tell application "Terminal"
-            activate
-            repeat with w in windows
-                repeat with t in tabs of w
-                    try
-                        if (do script "pwd" in t) contains "{}" then
-                            set selected of t to true
-                            set index of w to 1
-                            return
-                        end if
-                    end try
-                end repeat
-            end repeat
+        tell application "System Events"
+            if exists process "iTerm2" then
+                tell application "iTerm2"
+                    activate
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            repeat with s in sessions of t
+                                if name of s contains "{}" then
+                                    select s
+                                    select t
+                                    set index of w to 1
+                                    return "found"
+                                end if
+                            end repeat
+                        end repeat
+                    end repeat
+                end tell
+            end if
         end tell
-    "#, path);
+        return "not found"
+    "#, path.split('/').last().unwrap_or(path));
 
     execute_applescript(&script)
 }
