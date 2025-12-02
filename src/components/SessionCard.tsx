@@ -10,26 +10,30 @@ interface SessionCardProps {
 const statusConfig = {
   waiting: {
     color: 'bg-status-waiting',
-    variant: 'outline' as const,
-    className: 'border-status-waiting/30 text-status-waiting bg-status-waiting/10',
+    cardBg: 'bg-status-waiting/10',
+    cardBorder: 'border-status-waiting/20',
+    badgeClassName: 'border-status-waiting/30 text-status-waiting bg-status-waiting/10',
     label: 'Waiting for input',
   },
   thinking: {
     color: 'bg-status-thinking',
-    variant: 'outline' as const,
-    className: 'border-status-thinking/30 text-status-thinking bg-status-thinking/10',
+    cardBg: 'bg-status-thinking/10',
+    cardBorder: 'border-status-thinking/20',
+    badgeClassName: 'border-status-thinking/30 text-status-thinking bg-status-thinking/10',
     label: 'Thinking...',
   },
   processing: {
     color: 'bg-status-processing',
-    variant: 'outline' as const,
-    className: 'border-status-processing/30 text-status-processing bg-status-processing/10',
+    cardBg: 'bg-status-processing/10',
+    cardBorder: 'border-status-processing/20',
+    badgeClassName: 'border-status-processing/30 text-status-processing bg-status-processing/10',
     label: 'Processing',
   },
   idle: {
     color: 'bg-status-idle',
-    variant: 'outline' as const,
-    className: 'border-status-idle/30 text-status-idle bg-status-idle/10',
+    cardBg: 'bg-card',
+    cardBorder: 'border-border',
+    badgeClassName: 'border-status-idle/30 text-status-idle bg-status-idle/10',
     label: 'Idle',
   },
 };
@@ -59,7 +63,7 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
 
   return (
     <Card
-      className="group cursor-pointer transition-all duration-200 hover:bg-accent/50 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 py-0 gap-0"
+      className={`group cursor-pointer transition-all duration-200 hover:shadow-lg py-0 gap-0 ${config.cardBg} ${config.cardBorder} hover:border-primary/30`}
       onClick={onClick}
     >
       <CardContent className="p-4">
@@ -99,7 +103,7 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
 
         {/* Footer: Status Badge + Time */}
         <div className="flex items-center justify-between pt-3 border-t border-border">
-          <Badge variant="outline" className={config.className}>
+          <Badge variant="outline" className={config.badgeClassName}>
             {config.label}
           </Badge>
           <span className="text-xs text-muted-foreground">
