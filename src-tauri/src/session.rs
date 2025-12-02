@@ -476,20 +476,17 @@ fn determine_status(
     // - If last message is from user -> Thinking (Claude is generating a response)
     // - If last message is a local slash command (/clear, /help, etc.) -> Waiting (these don't trigger Claude)
 
-    // Key insight: if the file was modified very recently, Claude is actively working
-    // and we should NOT show "Waiting" even if the last written message was assistant text
+    // Key insight: Once an assistant text message (without tool_use) is written, Claude is done
+    // and waiting for user input, regardless of file modification time
 
     match last_msg_type {
         Some("assistant") => {
             if has_tool_use {
                 // Assistant sent a tool_use, tool is executing
                 SessionStatus::Processing
-            } else if file_recently_modified {
-                // File is being actively modified but last message is text
-                // Claude is likely still streaming or about to send more
-                SessionStatus::Thinking
             } else {
-                // Assistant sent a text response and file is stable - waiting for user
+                // Assistant sent a text response - waiting for user input
+                // Once Claude sends text without tool_use, it's done and waiting
                 SessionStatus::Waiting
             }
         }
