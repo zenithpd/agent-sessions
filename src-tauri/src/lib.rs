@@ -4,6 +4,9 @@ mod process;
 mod session;
 mod terminal;
 
+#[cfg(test)]
+mod tests;
+
 use tauri::{
     Manager,
     tray::TrayIconBuilder,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatTimeAgo, truncatePath, statusConfig } from './formatters';
+import { formatTimeAgo, truncatePath, statusConfig } from '../lib/formatters';
 
 describe('formatTimeAgo', () => {
   beforeEach(() => {

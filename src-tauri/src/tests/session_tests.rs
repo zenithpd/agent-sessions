@@ -1,0 +1,501 @@
+use crate::process::ClaudeProcess;
+use crate::session::{SessionStatus, parse_session_file};
+use serde_json::json;
+use std::io::Write;
+use std::path::PathBuf;
+use tempfile::NamedTempFile;
+
+// Helper functions
+
+fn create_test_jsonl(lines: &[&str]) -> NamedTempFile {
+    let mut file = NamedTempFile::new().unwrap();
+    for line in lines {
+        writeln!(file, "{}", line).unwrap();
+    }
+    file.flush().unwrap();
+    file
+}
+
+fn create_test_process() -> ClaudeProcess {
+    ClaudeProcess {
+        pid: 12345,
+        cwd: Some(PathBuf::from("/Users/test/Projects/test-project")),
+        cpu_usage: 0.0,
+        memory: 0,
+    }
+}
+
+// Unit tests for helper functions
+
+#[test]
+fn test_convert_dir_name_to_path() {
+    use crate::session::convert_dir_name_to_path;
+
+    // Test basic project path
+    assert_eq!(
+        convert_dir_name_to_path("-Users-ozan-Projects-ai-image-dashboard"),
+        "/Users/ozan/Projects/ai-image-dashboard"
+    );
+
+    // Test project with multiple dashes
+    assert_eq!(
+        convert_dir_name_to_path("-Users-ozan-Projects-backend-service-generator-ai"),
+        "/Users/ozan/Projects/backend-service-generator-ai"
+    );
+
+    // Test UnityProjects
+    assert_eq!(
+        convert_dir_name_to_path("-Users-ozan-UnityProjects-my-game"),
+        "/Users/ozan/UnityProjects/my-game"
+    );
+
+    // Test worktree paths (with double dashes -> hidden folders)
+    assert_eq!(
+        convert_dir_name_to_path("-Users-ozan-Projects-ai-image-dashboard--rsworktree-analytics"),
+        "/Users/ozan/Projects/ai-image-dashboard/.rsworktree/analytics"
+    );
+
+    // Test multiple hidden folders
+    assert_eq!(
+        convert_dir_name_to_path("-Users-ozan-Projects-myproject--hidden--subfolder"),
+        "/Users/ozan/Projects/myproject/.hidden/.subfolder"
+    );
+
+    // Test just Projects folder
+    assert_eq!(
+        convert_dir_name_to_path("-Users-ozan-Projects"),
+        "/Users/ozan/Projects"
+    );
+}
+
+#[test]
+fn test_has_tool_use() {
+    use crate::session::has_tool_use;
+
+    // Array with tool_use block
+    let content_with_tool_use = json!([
+        {"type": "text", "text": "Let me run that command"},
+        {"type": "tool_use", "id": "123", "name": "Bash", "input": {"command": "ls"}}
+    ]);
+    assert!(has_tool_use(&content_with_tool_use));
+
+    // Array without tool_use
+    let content_without_tool_use = json!([
+        {"type": "text", "text": "Here is the result"}
+    ]);
+    assert!(!has_tool_use(&content_without_tool_use));
+
+    // Empty array
+    let empty_array = json!([]);
+    assert!(!has_tool_use(&empty_array));
+
+    // String content (not an array)
+    let string_content = json!("Just a string");
+    assert!(!has_tool_use(&string_content));
+
+    // Array with tool_result (not tool_use)
+    let content_with_tool_result = json!([
+        {"type": "tool_result", "tool_use_id": "123", "content": "output"}
+    ]);
+    assert!(!has_tool_use(&content_with_tool_result));
+}
+
+#[test]
+fn test_has_tool_result() {
+    use crate::session::has_tool_result;
+
+    // Array with tool_result block
+    let content_with_tool_result = json!([
+        {"type": "tool_result", "tool_use_id": "123", "content": "command output"}
+    ]);
+    assert!(has_tool_result(&content_with_tool_result));
+
+    // Array without tool_result
+    let content_without_tool_result = json!([
+        {"type": "text", "text": "Just text"}
+    ]);
+    assert!(!has_tool_result(&content_without_tool_result));
+
+    // Empty array
+    let empty_array = json!([]);
+    assert!(!has_tool_result(&empty_array));
+
+    // String content (not an array)
+    let string_content = json!("Just a string");
+    assert!(!has_tool_result(&string_content));
+
+    // Array with tool_use (not tool_result)
+    let content_with_tool_use = json!([
+        {"type": "tool_use", "id": "123", "name": "Read"}
+    ]);
+    assert!(!has_tool_result(&content_with_tool_use));
+}
+
+#[test]
+fn test_is_local_slash_command() {
+    use crate::session::is_local_slash_command;
+
+    // Test recognized local commands
+    assert!(is_local_slash_command(&json!("/clear")));
+    assert!(is_local_slash_command(&json!("/compact")));
+    assert!(is_local_slash_command(&json!("/help")));
+    assert!(is_local_slash_command(&json!("/config")));
+    assert!(is_local_slash_command(&json!("/cost")));
+    assert!(is_local_slash_command(&json!("/doctor")));
+    assert!(is_local_slash_command(&json!("/init")));
+    assert!(is_local_slash_command(&json!("/login")));
+    assert!(is_local_slash_command(&json!("/logout")));
+    assert!(is_local_slash_command(&json!("/memory")));
+    assert!(is_local_slash_command(&json!("/model")));
+    assert!(is_local_slash_command(&json!("/permissions")));
+    assert!(is_local_slash_command(&json!("/pr-comments")));
+    assert!(is_local_slash_command(&json!("/review")));
+    assert!(is_local_slash_command(&json!("/status")));
+    assert!(is_local_slash_command(&json!("/terminal-setup")));
+    assert!(is_local_slash_command(&json!("/vim")));
+
+    // Test commands with arguments
+    assert!(is_local_slash_command(&json!("/model sonnet")));
+    assert!(is_local_slash_command(&json!("/memory add something")));
+
+    // Test commands with whitespace
+    assert!(is_local_slash_command(&json!("  /clear  ")));
+
+    // Test non-local commands (these trigger Claude)
+    assert!(!is_local_slash_command(&json!("Hello Claude")));
+    assert!(!is_local_slash_command(&json!("/custom-command")));
+    assert!(!is_local_slash_command(&json!("/fix the bug")));
+
+    // Test array content with text block
+    let array_content = json!([
+        {"type": "text", "text": "/clear"}
+    ]);
+    assert!(is_local_slash_command(&array_content));
+
+    // Test array content with non-local command
+    let array_non_local = json!([
+        {"type": "text", "text": "fix the bug"}
+    ]);
+    assert!(!is_local_slash_command(&array_non_local));
+
+    // Test empty and edge cases
+    assert!(!is_local_slash_command(&json!("")));
+    assert!(!is_local_slash_command(&json!(null)));
+    assert!(!is_local_slash_command(&json!(123)));
+}
+
+#[test]
+fn test_determine_status_assistant_with_tool_use() {
+    use crate::session::determine_status;
+
+    // Assistant message with tool_use -> Processing
+    let status = determine_status(
+        Some("assistant"),
+        true,  // has_tool_use
+        false, // has_tool_result
+        false, // is_local_command
+        false, // file_recently_modified
+    );
+    assert!(matches!(status, SessionStatus::Processing));
+
+    // Even with file recently modified, tool_use means Processing
+    let status = determine_status(
+        Some("assistant"),
+        true,
+        false,
+        false,
+        true, // file_recently_modified
+    );
+    assert!(matches!(status, SessionStatus::Processing));
+}
+
+#[test]
+fn test_determine_status_assistant_text_only() {
+    use crate::session::determine_status;
+
+    // Assistant message with only text -> Waiting
+    let status = determine_status(
+        Some("assistant"),
+        false, // no tool_use
+        false,
+        false,
+        false,
+    );
+    assert!(matches!(status, SessionStatus::Waiting));
+
+    // Even if file was recently modified, text-only assistant message means Waiting
+    let status = determine_status(
+        Some("assistant"),
+        false,
+        false,
+        false,
+        true, // file_recently_modified
+    );
+    assert!(matches!(status, SessionStatus::Waiting));
+}
+
+#[test]
+fn test_determine_status_user_message() {
+    use crate::session::determine_status;
+
+    // Regular user message -> Thinking (Claude generating response)
+    let status = determine_status(
+        Some("user"),
+        false,
+        false,
+        false, // not a local command
+        false,
+    );
+    assert!(matches!(status, SessionStatus::Thinking));
+
+    // User message that's a local command -> Waiting
+    let status = determine_status(
+        Some("user"),
+        false,
+        false,
+        true, // is_local_command
+        false,
+    );
+    assert!(matches!(status, SessionStatus::Waiting));
+}
+
+#[test]
+fn test_determine_status_user_with_tool_result() {
+    use crate::session::determine_status;
+
+    // User message with tool_result and recent file modification -> Thinking
+    let status = determine_status(
+        Some("user"),
+        false,
+        true,  // has_tool_result
+        false,
+        true,  // file_recently_modified
+    );
+    assert!(matches!(status, SessionStatus::Thinking));
+
+    // User message with tool_result but no recent modification -> Processing
+    let status = determine_status(
+        Some("user"),
+        false,
+        true,  // has_tool_result
+        false,
+        false, // not recently modified
+    );
+    assert!(matches!(status, SessionStatus::Processing));
+}
+
+#[test]
+fn test_determine_status_unknown_type() {
+    use crate::session::determine_status;
+
+    // Unknown message type with recent file activity -> Thinking
+    let status = determine_status(
+        None,
+        false,
+        false,
+        false,
+        true, // file_recently_modified
+    );
+    assert!(matches!(status, SessionStatus::Thinking));
+
+    // Unknown message type without recent activity -> Idle
+    let status = determine_status(
+        None,
+        false,
+        false,
+        false,
+        false,
+    );
+    assert!(matches!(status, SessionStatus::Idle));
+}
+
+#[test]
+fn test_status_sort_priority() {
+    use crate::session::status_sort_priority;
+
+    // Thinking and Processing have highest priority (0)
+    assert_eq!(status_sort_priority(&SessionStatus::Thinking), 0);
+    assert_eq!(status_sort_priority(&SessionStatus::Processing), 0);
+
+    // Waiting has second priority (1)
+    assert_eq!(status_sort_priority(&SessionStatus::Waiting), 1);
+
+    // Idle has lowest priority (2)
+    assert_eq!(status_sort_priority(&SessionStatus::Idle), 2);
+
+    // Verify ordering: Thinking/Processing < Waiting < Idle
+    assert!(status_sort_priority(&SessionStatus::Thinking) < status_sort_priority(&SessionStatus::Waiting));
+    assert!(status_sort_priority(&SessionStatus::Waiting) < status_sort_priority(&SessionStatus::Idle));
+}
+
+#[test]
+fn test_session_status_serialization() {
+    // Verify status serializes to lowercase
+    let waiting = SessionStatus::Waiting;
+    let serialized = serde_json::to_string(&waiting).unwrap();
+    assert_eq!(serialized, "\"waiting\"");
+
+    let thinking = SessionStatus::Thinking;
+    let serialized = serde_json::to_string(&thinking).unwrap();
+    assert_eq!(serialized, "\"thinking\"");
+
+    let processing = SessionStatus::Processing;
+    let serialized = serde_json::to_string(&processing).unwrap();
+    assert_eq!(serialized, "\"processing\"");
+
+    let idle = SessionStatus::Idle;
+    let serialized = serde_json::to_string(&idle).unwrap();
+    assert_eq!(serialized, "\"idle\"");
+}
+
+// Integration tests for JSONL parsing
+
+#[test]
+fn test_parse_jsonl_assistant_text_only_is_waiting() {
+    // Scenario: Claude responded with text only (no tool_use)
+    // Expected: Waiting
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello! How can I help you today?"}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert!(matches!(session.status, SessionStatus::Waiting),
+        "Expected Waiting when last message is assistant text-only, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_assistant_with_tool_use_is_processing() {
+    // Scenario: Claude sent a tool_use (waiting for tool execution)
+    // Expected: Processing
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"List files"},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Let me list the files"},{"type":"tool_use","id":"123","name":"Bash","input":{"command":"ls"}}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert!(matches!(session.status, SessionStatus::Processing),
+        "Expected Processing when last message is assistant with tool_use, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_user_message_is_thinking() {
+    // Scenario: User just sent a message (Claude is thinking)
+    // Expected: Thinking
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"How can I help?"}]},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"Fix the bug in main.rs"},"timestamp":"2024-01-01T00:00:01Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert!(matches!(session.status, SessionStatus::Thinking),
+        "Expected Thinking when last message is user input, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_user_tool_result_is_thinking() {
+    // Scenario: Tool result was just sent, Claude processing it
+    // The tempfile is freshly created so file_recently_modified = true
+    // Expected: Thinking (Claude is actively processing the tool result)
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"123","name":"Bash","input":{"command":"ls"}}]},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"123","content":"file1.txt\nfile2.txt"}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    // Since the tempfile was just created, file_recently_modified = true
+    // With tool_result + recently modified = Thinking
+    assert!(matches!(session.status, SessionStatus::Thinking),
+        "Expected Thinking when last message is tool_result with recently modified file, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_local_command_is_waiting() {
+    // Scenario: User typed /clear or other local command
+    // Expected: Waiting (local commands don't trigger Claude)
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done!"}]},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"/clear"},"timestamp":"2024-01-01T00:00:01Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert!(matches!(session.status, SessionStatus::Waiting),
+        "Expected Waiting when last message is local command, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_complex_conversation_flow() {
+    // Scenario: Complex conversation - user asks, Claude responds with tool, tool runs, Claude responds with text
+    // Expected: Waiting (Claude finished with text response)
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"What files are in this directory?"},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"ls -la"}}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool1","content":"file1.txt\nfile2.txt"}]},"timestamp":"2024-01-01T00:00:02Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I found 2 files: file1.txt and file2.txt"}]},"timestamp":"2024-01-01T00:00:03Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert!(matches!(session.status, SessionStatus::Waiting),
+        "Expected Waiting after Claude responds with text, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_multiple_tool_calls_in_progress() {
+    // Scenario: Claude sent tool_use, waiting for result
+    // Expected: Processing
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"Run tests and check coverage"},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll run the tests first"},{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"npm test"}}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    assert!(matches!(session.status, SessionStatus::Processing),
+        "Expected Processing when tool is executing, got {:?}", session.status);
+}
+
+#[test]
+fn test_parse_jsonl_empty_content_skipped() {
+    // Scenario: Some messages have empty content, should skip to find real message
+    let jsonl = create_test_jsonl(&[
+        r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"Hello"},"timestamp":"2024-01-01T00:00:00Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[]},"timestamp":"2024-01-01T00:00:01Z"}"#,
+        r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi there!"}]},"timestamp":"2024-01-01T00:00:02Z"}"#,
+    ]);
+
+    let process = create_test_process();
+    let session = parse_session_file(&jsonl.path().to_path_buf(), "/Users/test/Projects/test-project", &process);
+
+    assert!(session.is_some());
+    let session = session.unwrap();
+    // The parser reads from the end, so it should find the last non-empty message
+    assert!(matches!(session.status, SessionStatus::Waiting),
+        "Expected Waiting after finding text-only assistant message, got {:?}", session.status);
+}
