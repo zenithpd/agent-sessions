@@ -353,10 +353,10 @@ pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Cl
         .unwrap_or("Unknown")
         .to_string();
 
-    // Truncate message for preview
+    // Truncate message for preview (respecting UTF-8 char boundaries)
     let last_message = last_message.map(|m| {
-        if m.len() > 100 {
-            format!("{}...", &m[..100])
+        if m.chars().count() > 100 {
+            format!("{}...", m.chars().take(100).collect::<String>())
         } else {
             m
         }
