@@ -13,10 +13,10 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
 
   return (
     <Card
-      className={`group cursor-pointer transition-all duration-200 hover:shadow-lg py-0 gap-0 ${config.cardBg} ${config.cardBorder} hover:border-primary/30`}
+      className={`group cursor-pointer transition-all duration-200 hover:shadow-lg py-0 gap-0 h-full flex flex-col ${config.cardBg} ${config.cardBorder} hover:border-primary/30`}
       onClick={onClick}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-4 flex flex-col flex-1">
         {/* Header: Project name + Status indicator */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
@@ -45,14 +45,16 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
         )}
 
         {/* Message Preview */}
-        {session.lastMessage && (
-          <div className="text-sm text-muted-foreground mb-3 line-clamp-2 leading-relaxed">
-            {session.lastMessage}
-          </div>
-        )}
+        <div className="flex-1">
+          {session.lastMessage && (
+            <div className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+              {session.lastMessage}
+            </div>
+          )}
+        </div>
 
         {/* Footer: Status Badge + Time */}
-        <div className="flex items-center justify-between pt-3 border-t border-border">
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
           <Badge variant="outline" className={config.badgeClassName}>
             {config.label}
           </Badge>
