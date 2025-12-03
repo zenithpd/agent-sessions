@@ -2,15 +2,15 @@
 set -e
 
 # Release script for Agent Sessions
-# This script builds, signs, notarizes, and creates properly styled DMGs for both architectures
+# This script builds, signs, notarizes, creates DMGs, publishes to GitHub, and updates Homebrew
 
 # Configuration
 APP_NAME="Agent Sessions"
 BUNDLE_ID="com.claude-sessions-viewer"
-SIGNING_IDENTITY="Developer ID Application: Ozan Kasikci (5K5S7L7L7M)"
+SIGNING_IDENTITY="Developer ID Application: Ozan Kasikci (H69JJG55Y6)"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TAURI_DIR="$PROJECT_ROOT/src-tauri"
-BUNDLE_DMG_SCRIPT="$TAURI_DIR/target/aarch64-apple-darwin/release/bundle/dmg/bundle_dmg.sh"
+HOMEBREW_TAP_REPO="ozankasikci/homebrew-tap"
 
 # Get version from tauri.conf.json
 VERSION=$(grep '"version"' "$TAURI_DIR/tauri.conf.json" | head -1 | sed 's/.*"version": "\([^"]*\)".*/\1/')
@@ -40,44 +40,31 @@ build_arch() {
     echo "Build complete for $arch"
 }
 
-# Function to create styled DMG using Tauri's bundle_dmg.sh
+# Function to sign app with hardened runtime
+sign_app() {
+    local arch=$1
+    local target=$2
+    local app_path="$TAURI_DIR/target/$target/release/bundle/macos/${APP_NAME}.app"
+
+    echo "=== Signing app for $arch ==="
+    codesign --force --deep --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$app_path"
+    echo "Signed: $app_path"
+}
+
+# Function to create DMG from signed app
 create_dmg() {
     local arch=$1
     local target=$2
     local dmg_name="AgentSessions_${VERSION}_${arch}.dmg"
-    local bundle_dir="$TAURI_DIR/target/$target/release/bundle"
-    local app_path="$bundle_dir/macos/${APP_NAME}.app"
-    local dmg_path="$bundle_dir/dmg/$dmg_name"
+    local app_path="$TAURI_DIR/target/$target/release/bundle/macos/${APP_NAME}.app"
     local output_dir="$PROJECT_ROOT/release"
+    local dmg_path="$output_dir/$dmg_name"
 
     echo "=== Creating DMG for $arch ==="
-
-    # Ensure the bundle_dmg.sh script exists
-    if [ ! -f "$BUNDLE_DMG_SCRIPT" ]; then
-        echo "Error: bundle_dmg.sh not found at $BUNDLE_DMG_SCRIPT"
-        echo "Run a build first to generate the script"
-        exit 1
-    fi
-
-    # Create release output directory
     mkdir -p "$output_dir"
-
-    # Run the Tauri DMG bundler script
-    # This creates a properly styled DMG with volume icon, Applications symlink, and Finder layout
-    cd "$bundle_dir/dmg"
-
-    # Remove old DMG if exists
-    rm -f "$dmg_name"
-
-    # The bundle_dmg.sh script expects to be run from the dmg directory
-    # and will create the DMG with proper styling
-    bash "$BUNDLE_DMG_SCRIPT" "$app_path" "$dmg_name"
-
+    rm -f "$dmg_path"
+    hdiutil create -volname "Agent Sessions" -srcfolder "$app_path" -ov -format UDZO "$dmg_path"
     echo "DMG created at $dmg_path"
-
-    # Copy to release directory
-    cp "$dmg_path" "$output_dir/"
-    echo "Copied to $output_dir/$dmg_name"
 }
 
 # Function to sign DMG
@@ -87,7 +74,7 @@ sign_dmg() {
     local dmg_path="$PROJECT_ROOT/release/$dmg_name"
 
     echo "=== Signing DMG for $arch ==="
-    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$dmg_path"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$dmg_path"
     echo "Signed: $dmg_path"
 }
 
@@ -118,9 +105,102 @@ calc_sha256() {
     shasum -a 256 "$dmg_path" | awk '{print $1}'
 }
 
+# Function to create GitHub release
+create_github_release() {
+    local aarch64_dmg="$PROJECT_ROOT/release/AgentSessions_${VERSION}_aarch64.dmg"
+    local x64_dmg="$PROJECT_ROOT/release/AgentSessions_${VERSION}_x64.dmg"
+    local aarch64_sha=$(calc_sha256 "aarch64")
+    local x64_sha=$(calc_sha256 "x64")
+
+    echo "=== Creating GitHub Release ==="
+
+    # Create and push tag
+    git tag "v$VERSION" 2>/dev/null || echo "Tag v$VERSION already exists"
+    git push origin "v$VERSION" 2>/dev/null || echo "Tag already pushed"
+
+    # Create release with DMGs
+    gh release create "v$VERSION" \
+        "$aarch64_dmg" \
+        "$x64_dmg" \
+        --title "v$VERSION" \
+        --notes "## Downloads
+
+- **Apple Silicon (M1/M2/M3)**: \`AgentSessions_${VERSION}_aarch64.dmg\`
+- **Intel**: \`AgentSessions_${VERSION}_x64.dmg\`
+
+## SHA256 Checksums
+\`\`\`
+$aarch64_sha  AgentSessions_${VERSION}_aarch64.dmg
+$x64_sha  AgentSessions_${VERSION}_x64.dmg
+\`\`\`
+
+## Install via Homebrew
+\`\`\`bash
+brew tap ozankasikci/tap
+brew install --cask agent-sessions
+\`\`\`
+"
+
+    echo "GitHub release created: https://github.com/ozankasikci/agent-sessions/releases/tag/v$VERSION"
+}
+
+# Function to update Homebrew tap
+update_homebrew() {
+    local aarch64_sha=$(calc_sha256 "aarch64")
+    local x64_sha=$(calc_sha256 "x64")
+    local tmp_dir=$(mktemp -d)
+
+    echo "=== Updating Homebrew Tap ==="
+
+    cd "$tmp_dir"
+    gh repo clone "$HOMEBREW_TAP_REPO" homebrew-tap
+
+    cat > homebrew-tap/Casks/agent-sessions.rb << EOF
+cask "agent-sessions" do
+  version "$VERSION"
+
+  on_arm do
+    sha256 "$aarch64_sha"
+    url "https://github.com/ozankasikci/agent-sessions/releases/download/v#{version}/AgentSessions_#{version}_aarch64.dmg"
+  end
+
+  on_intel do
+    sha256 "$x64_sha"
+    url "https://github.com/ozankasikci/agent-sessions/releases/download/v#{version}/AgentSessions_#{version}_x64.dmg"
+  end
+
+  name "Agent Sessions"
+  desc "macOS desktop app to monitor running Claude Code sessions"
+  homepage "https://github.com/ozankasikci/agent-sessions"
+
+  depends_on macos: ">= :monterey"
+
+  app "Agent Sessions.app"
+
+  zap trash: [
+    "~/Library/Preferences/com.claude-sessions-viewer.plist",
+    "~/Library/Saved Application State/com.claude-sessions-viewer.savedState",
+  ]
+end
+EOF
+
+    cd homebrew-tap
+    git add Casks/agent-sessions.rb
+    git commit -m "bump agent-sessions to v$VERSION"
+    git push
+
+    cd "$PROJECT_ROOT"
+    rm -rf "$tmp_dir"
+
+    echo "Homebrew tap updated to v$VERSION"
+}
+
 # Main release process
 main() {
     local skip_build=false
+    local skip_notarize=false
+    local skip_github=false
+    local skip_homebrew=false
     local arch_filter=""
 
     # Parse arguments
@@ -128,6 +208,18 @@ main() {
         case $1 in
             --skip-build)
                 skip_build=true
+                shift
+                ;;
+            --skip-notarize)
+                skip_notarize=true
+                shift
+                ;;
+            --skip-github)
+                skip_github=true
+                shift
+                ;;
+            --skip-homebrew)
+                skip_homebrew=true
                 shift
                 ;;
             --arch)
@@ -138,9 +230,12 @@ main() {
                 echo "Usage: $0 [options]"
                 echo ""
                 echo "Options:"
-                echo "  --skip-build    Skip the build step (use existing builds)"
-                echo "  --arch <arch>   Build only for specific arch (aarch64 or x64)"
-                echo "  --help          Show this help message"
+                echo "  --skip-build      Skip the build step (use existing builds)"
+                echo "  --skip-notarize   Skip notarization (for testing)"
+                echo "  --skip-github     Skip GitHub release creation"
+                echo "  --skip-homebrew   Skip Homebrew tap update"
+                echo "  --arch <arch>     Build only for specific arch (aarch64 or x64)"
+                echo "  --help            Show this help message"
                 exit 0
                 ;;
             *)
@@ -173,6 +268,11 @@ main() {
         done
     fi
 
+    # Sign apps
+    for arch in "${archs[@]}"; do
+        sign_app "$arch" "$(get_target "$arch")"
+    done
+
     # Create DMGs
     for arch in "${archs[@]}"; do
         create_dmg "$arch" "$(get_target "$arch")"
@@ -184,13 +284,15 @@ main() {
     done
 
     # Notarize DMGs
-    for arch in "${archs[@]}"; do
-        notarize_dmg "$arch"
-    done
+    if [ "$skip_notarize" = false ]; then
+        for arch in "${archs[@]}"; do
+            notarize_dmg "$arch"
+        done
+    fi
 
     # Print summary
     echo ""
-    echo "=== Release Complete ==="
+    echo "=== Build Complete ==="
     echo "Version: $VERSION"
     echo ""
     echo "DMG files in $PROJECT_ROOT/release/:"
@@ -201,28 +303,21 @@ main() {
         echo "    SHA256: $sha"
     done
 
-    echo ""
-    echo "=== Homebrew Cask Update ==="
-    echo "Update homebrew-tap/Casks/agent-sessions.rb with:"
-    echo ""
-    for arch in "${archs[@]}"; do
-        local sha=$(calc_sha256 "$arch")
-        if [ "$arch" = "aarch64" ]; then
-            echo "  on_arm do"
-            echo "    sha256 \"$sha\""
-        else
-            echo "  on_intel do"
-            echo "    sha256 \"$sha\""
-        fi
-    done
+    # Create GitHub release
+    if [ "$skip_github" = false ]; then
+        create_github_release
+    fi
+
+    # Update Homebrew tap
+    if [ "$skip_homebrew" = false ]; then
+        update_homebrew
+    fi
 
     echo ""
-    echo "=== GitHub Release ==="
-    echo "Create a new release at:"
-    echo "  https://github.com/ozankasikci/agent-sessions/releases/new"
-    echo ""
-    echo "Tag: v$VERSION"
-    echo "Upload the DMG files from $PROJECT_ROOT/release/"
+    echo "=== Release Complete ==="
+    echo "Version: $VERSION"
+    echo "GitHub: https://github.com/ozankasikci/agent-sessions/releases/tag/v$VERSION"
+    echo "Homebrew: brew install --cask ozankasikci/tap/agent-sessions"
 }
 
 main "$@"
