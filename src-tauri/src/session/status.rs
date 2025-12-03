@@ -28,10 +28,9 @@ pub fn has_tool_result(content: &serde_json::Value) -> bool {
     }
 }
 
-/// Check if message content is a local slash command that doesn't trigger Claude response
-/// These commands are handled locally by Claude Code and don't require thinking
-pub fn is_local_slash_command(content: &serde_json::Value) -> bool {
-    let text = match content {
+/// Extract text content from a message content value
+fn extract_text_content(content: &serde_json::Value) -> &str {
+    match content {
         serde_json::Value::String(s) => s.as_str(),
         serde_json::Value::Array(arr) => {
             // Find first text block
@@ -39,9 +38,20 @@ pub fn is_local_slash_command(content: &serde_json::Value) -> bool {
                 v.get("text").and_then(|t| t.as_str())
             }).unwrap_or("")
         }
-        _ => return false,
-    };
+        _ => "",
+    }
+}
 
+/// Check if message content indicates an interrupted request (user pressed Escape)
+pub fn is_interrupted_request(content: &serde_json::Value) -> bool {
+    let text = extract_text_content(content);
+    text.contains("[Request interrupted by user]")
+}
+
+/// Check if message content is a local slash command that doesn't trigger Claude response
+/// These commands are handled locally by Claude Code and don't require thinking
+pub fn is_local_slash_command(content: &serde_json::Value) -> bool {
+    let text = extract_text_content(content);
     let trimmed = text.trim();
 
     // Local commands that don't trigger Claude to think
@@ -91,11 +101,13 @@ pub fn status_sort_priority(status: &SessionStatus) -> u8 {
 /// - If last message is from assistant with only text -> Waiting (Claude finished, waiting for user)
 /// - If last message is from user -> Thinking (Claude is generating a response)
 /// - If last message is a local slash command (/clear, /help, etc.) -> Waiting (these don't trigger Claude)
+/// - If last message indicates interrupted request -> Waiting (user pressed Escape)
 pub fn determine_status(
     last_msg_type: Option<&str>,
     has_tool_use: bool,
     has_tool_result: bool,
     is_local_command: bool,
+    is_interrupted: bool,
     file_recently_modified: bool,
 ) -> SessionStatus {
     // Key insight: Once an assistant text message (without tool_use) is written, Claude is done
@@ -113,9 +125,9 @@ pub fn determine_status(
             }
         }
         Some("user") => {
-            if is_local_command {
+            if is_local_command || is_interrupted {
                 // Local slash commands like /clear, /help, /compact don't trigger Claude
-                // Session is waiting for actual user input
+                // Interrupted requests (user pressed Escape) also mean session is waiting
                 SessionStatus::Waiting
             } else if has_tool_result {
                 // User message contains tool_result - tool execution complete,

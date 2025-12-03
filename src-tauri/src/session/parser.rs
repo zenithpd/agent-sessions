@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::process::ClaudeProcess;
 use super::model::{Session, SessionStatus, SessionsResponse, JsonlMessage};
-use super::status::{determine_status, has_tool_use, has_tool_result, is_local_slash_command, status_sort_priority};
+use super::status::{determine_status, has_tool_use, has_tool_result, is_local_slash_command, is_interrupted_request, status_sort_priority};
 
 /// Convert a directory name like "-Users-ozan-Projects-ai-image-dashboard" back to a path
 /// The challenge is that both path separators AND project names can contain dashes
@@ -335,6 +335,7 @@ pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Cl
     let mut last_has_tool_use = false;
     let mut last_has_tool_result = false;
     let mut last_is_local_command = false;
+    let mut last_is_interrupted = false;
     let mut found_status_info = false;
 
     // Read last N lines for efficiency
@@ -371,11 +372,12 @@ pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Cl
                             last_has_tool_use = has_tool_use(c);
                             last_has_tool_result = has_tool_result(c);
                             last_is_local_command = is_local_slash_command(c);
+                            last_is_interrupted = is_interrupted_request(c);
                             found_status_info = true;
 
                             debug!(
-                                "Found status info: type={:?}, role={:?}, has_tool_use={}, has_tool_result={}, is_local_cmd={}",
-                                last_msg_type, last_role, last_has_tool_use, last_has_tool_result, last_is_local_command
+                                "Found status info: type={:?}, role={:?}, has_tool_use={}, has_tool_result={}, is_local_cmd={}, is_interrupted={}",
+                                last_msg_type, last_role, last_has_tool_use, last_has_tool_result, last_is_local_command, last_is_interrupted
                             );
                         }
                     }
@@ -422,12 +424,13 @@ pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Cl
         last_has_tool_use,
         last_has_tool_result,
         last_is_local_command,
+        last_is_interrupted,
         file_recently_modified,
     );
 
     debug!(
-        "Status determination: type={:?}, tool_use={}, tool_result={}, local_cmd={}, recent={} -> {:?}",
-        last_msg_type, last_has_tool_use, last_has_tool_result, last_is_local_command, file_recently_modified, status
+        "Status determination: type={:?}, tool_use={}, tool_result={}, local_cmd={}, interrupted={}, recent={} -> {:?}",
+        last_msg_type, last_has_tool_use, last_has_tool_result, last_is_local_command, last_is_interrupted, file_recently_modified, status
     );
 
     // Extract project name from path
