@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod process;
-mod session;
-mod terminal;
+pub mod commands;
+pub mod process;
+pub mod session;
+pub mod terminal;
 
 #[cfg(test)]
 mod tests;
@@ -12,94 +13,12 @@ use tauri::{
     tray::TrayIconBuilder,
     menu::{MenuBuilder, MenuItemBuilder},
 };
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 use std::sync::Mutex;
 
-use session::{get_sessions, SessionsResponse};
+use commands::{get_all_sessions, focus_session, update_tray_title, register_shortcut, unregister_shortcut};
 
 // Store tray icon ID for updates
 static TRAY_ID: Mutex<Option<String>> = Mutex::new(None);
-// Store current shortcut for unregistration
-static CURRENT_SHORTCUT: Mutex<Option<Shortcut>> = Mutex::new(None);
-
-#[tauri::command]
-fn get_all_sessions() -> SessionsResponse {
-    get_sessions()
-}
-
-#[tauri::command]
-fn focus_session(pid: u32, project_path: String) -> Result<(), String> {
-    terminal::focus_terminal_for_pid(pid)
-        .or_else(|_| terminal::focus_terminal_by_path(&project_path))
-}
-
-#[tauri::command]
-fn update_tray_title(app: tauri::AppHandle, total: usize, waiting: usize) -> Result<(), String> {
-    let title = if waiting > 0 {
-        format!("{} ({} waiting)", total, waiting)
-    } else if total > 0 {
-        format!("{}", total)
-    } else {
-        String::new()
-    };
-
-    if let Some(tray) = app.tray_by_id("main-tray") {
-        tray.set_title(Some(&title))
-            .map_err(|e| format!("Failed to set tray title: {}", e))?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn register_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<(), String> {
-    // Unregister any existing shortcut first
-    if let Some(old_shortcut) = CURRENT_SHORTCUT.lock().unwrap().take() {
-        let _ = app.global_shortcut().unregister(old_shortcut);
-    }
-
-    // Parse the shortcut string
-    let parsed_shortcut: Shortcut = shortcut.parse()
-        .map_err(|e| format!("Invalid shortcut format: {}", e))?;
-
-    // Register the new shortcut - toggle window visibility
-    app.global_shortcut()
-        .on_shortcut(parsed_shortcut.clone(), move |app, _shortcut, event| {
-            // Only handle key press, not release
-            if event.state != tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                return;
-            }
-
-            if let Some(window) = app.get_webview_window("main") {
-                let is_visible = window.is_visible().unwrap_or(false);
-                let is_focused = window.is_focused().unwrap_or(false);
-
-                // If window is visible AND focused, hide it
-                // Otherwise, show and focus it
-                if is_visible && is_focused {
-                    let _ = window.hide();
-                } else {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
-        .map_err(|e| format!("Failed to register shortcut: {}", e))?;
-
-    // Store the shortcut for later unregistration
-    *CURRENT_SHORTCUT.lock().unwrap() = Some(parsed_shortcut);
-
-    Ok(())
-}
-
-#[tauri::command]
-fn unregister_shortcut(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(shortcut) = CURRENT_SHORTCUT.lock().unwrap().take() {
-        app.global_shortcut()
-            .unregister(shortcut)
-            .map_err(|e| format!("Failed to unregister shortcut: {}", e))?;
-    }
-    Ok(())
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

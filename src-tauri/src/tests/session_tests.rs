@@ -1,5 +1,8 @@
 use crate::process::ClaudeProcess;
-use crate::session::{SessionStatus, parse_session_file};
+use crate::session::{
+    SessionStatus, parse_session_file, convert_dir_name_to_path,
+    determine_status, status_sort_priority, has_tool_use, has_tool_result, is_local_slash_command
+};
 use serde_json::json;
 use std::io::Write;
 use std::path::PathBuf;
@@ -29,8 +32,6 @@ fn create_test_process() -> ClaudeProcess {
 
 #[test]
 fn test_convert_dir_name_to_path() {
-    use crate::session::convert_dir_name_to_path;
-
     // Test basic project path
     assert_eq!(
         convert_dir_name_to_path("-Users-ozan-Projects-ai-image-dashboard"),
@@ -70,8 +71,6 @@ fn test_convert_dir_name_to_path() {
 
 #[test]
 fn test_has_tool_use() {
-    use crate::session::has_tool_use;
-
     // Array with tool_use block
     let content_with_tool_use = json!([
         {"type": "text", "text": "Let me run that command"},
@@ -102,8 +101,6 @@ fn test_has_tool_use() {
 
 #[test]
 fn test_has_tool_result() {
-    use crate::session::has_tool_result;
-
     // Array with tool_result block
     let content_with_tool_result = json!([
         {"type": "tool_result", "tool_use_id": "123", "content": "command output"}
@@ -133,8 +130,6 @@ fn test_has_tool_result() {
 
 #[test]
 fn test_is_local_slash_command() {
-    use crate::session::is_local_slash_command;
-
     // Test recognized local commands
     assert!(is_local_slash_command(&json!("/clear")));
     assert!(is_local_slash_command(&json!("/compact")));
@@ -186,8 +181,6 @@ fn test_is_local_slash_command() {
 
 #[test]
 fn test_determine_status_assistant_with_tool_use() {
-    use crate::session::determine_status;
-
     // Assistant message with tool_use -> Processing
     let status = determine_status(
         Some("assistant"),
@@ -211,8 +204,6 @@ fn test_determine_status_assistant_with_tool_use() {
 
 #[test]
 fn test_determine_status_assistant_text_only() {
-    use crate::session::determine_status;
-
     // Assistant message with only text -> Waiting
     let status = determine_status(
         Some("assistant"),
@@ -236,8 +227,6 @@ fn test_determine_status_assistant_text_only() {
 
 #[test]
 fn test_determine_status_user_message() {
-    use crate::session::determine_status;
-
     // Regular user message -> Thinking (Claude generating response)
     let status = determine_status(
         Some("user"),
@@ -261,8 +250,6 @@ fn test_determine_status_user_message() {
 
 #[test]
 fn test_determine_status_user_with_tool_result() {
-    use crate::session::determine_status;
-
     // User message with tool_result and recent file modification -> Thinking
     let status = determine_status(
         Some("user"),
@@ -286,8 +273,6 @@ fn test_determine_status_user_with_tool_result() {
 
 #[test]
 fn test_determine_status_unknown_type() {
-    use crate::session::determine_status;
-
     // Unknown message type with recent file activity -> Thinking
     let status = determine_status(
         None,
@@ -311,8 +296,6 @@ fn test_determine_status_unknown_type() {
 
 #[test]
 fn test_status_sort_priority() {
-    use crate::session::status_sort_priority;
-
     // Thinking and Processing have highest priority (0)
     assert_eq!(status_sort_priority(&SessionStatus::Thinking), 0);
     assert_eq!(status_sort_priority(&SessionStatus::Processing), 0);

@@ -1,131 +1,11 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use crate::process::{find_claude_processes, ClaudeProcess};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Session {
-    pub id: String,
-    pub project_name: String,
-    pub project_path: String,
-    pub git_branch: Option<String>,
-    pub status: SessionStatus,
-    pub last_message: Option<String>,
-    pub last_message_role: Option<String>,
-    pub last_activity_at: String,
-    pub pid: u32,
-    pub cpu_usage: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SessionStatus {
-    Waiting,
-    Processing,
-    Thinking,
-    Idle,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionsResponse {
-    pub sessions: Vec<Session>,
-    pub total_count: usize,
-    pub waiting_count: usize,
-}
-
-#[derive(Debug, Deserialize)]
-struct JsonlMessage {
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-    #[serde(rename = "gitBranch")]
-    git_branch: Option<String>,
-    timestamp: Option<String>,
-    #[serde(rename = "type")]
-    msg_type: Option<String>,
-    message: Option<MessageContent>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MessageContent {
-    role: Option<String>,
-    content: Option<serde_json::Value>,
-}
-
-/// Check if message content contains a tool_use block
-pub fn has_tool_use(content: &serde_json::Value) -> bool {
-    if let serde_json::Value::Array(arr) = content {
-        arr.iter().any(|item| {
-            item.get("type")
-                .and_then(|t| t.as_str())
-                .map(|t| t == "tool_use")
-                .unwrap_or(false)
-        })
-    } else {
-        false
-    }
-}
-
-/// Check if message content contains a tool_result block
-pub fn has_tool_result(content: &serde_json::Value) -> bool {
-    if let serde_json::Value::Array(arr) = content {
-        arr.iter().any(|item| {
-            item.get("type")
-                .and_then(|t| t.as_str())
-                .map(|t| t == "tool_result")
-                .unwrap_or(false)
-        })
-    } else {
-        false
-    }
-}
-
-/// Check if message content is a local slash command that doesn't trigger Claude response
-/// These commands are handled locally by Claude Code and don't require thinking
-pub fn is_local_slash_command(content: &serde_json::Value) -> bool {
-    let text = match content {
-        serde_json::Value::String(s) => s.as_str(),
-        serde_json::Value::Array(arr) => {
-            // Find first text block
-            arr.iter().find_map(|v| {
-                v.get("text").and_then(|t| t.as_str())
-            }).unwrap_or("")
-        }
-        _ => return false,
-    };
-
-    let trimmed = text.trim();
-
-    // Local commands that don't trigger Claude to think
-    // These are handled by the CLI itself
-    let local_commands = [
-        "/clear",
-        "/compact",
-        "/help",
-        "/config",
-        "/cost",
-        "/doctor",
-        "/init",
-        "/login",
-        "/logout",
-        "/memory",
-        "/model",
-        "/permissions",
-        "/pr-comments",
-        "/review",
-        "/status",
-        "/terminal-setup",
-        "/vim",
-    ];
-
-    local_commands.iter().any(|cmd| {
-        trimmed == *cmd || trimmed.starts_with(&format!("{} ", cmd))
-    })
-}
+use crate::process::ClaudeProcess;
+use super::model::{Session, SessionStatus, SessionsResponse, JsonlMessage};
+use super::status::{determine_status, has_tool_use, has_tool_result, is_local_slash_command, status_sort_priority};
 
 /// Convert a directory name like "-Users-ozan-Projects-ai-image-dashboard" back to a path
 /// The challenge is that both path separators AND project names can contain dashes
@@ -208,7 +88,10 @@ pub fn convert_dir_name_to_path(dir_name: &str) -> String {
     }
 }
 
+/// Get all active Claude Code sessions
 pub fn get_sessions() -> SessionsResponse {
+    use crate::process::find_claude_processes;
+
     let claude_processes = find_claude_processes();
     let mut sessions = Vec::new();
 
@@ -353,6 +236,7 @@ fn find_session_for_process(jsonl_files: &[PathBuf], project_path: &str, process
     parse_session_file(jsonl_path, project_path, process)
 }
 
+/// Parse a JSONL session file and create a Session struct
 pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &ClaudeProcess) -> Option<Session> {
     use std::time::{Duration, SystemTime};
 
@@ -490,75 +374,4 @@ pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Cl
         pid: process.pid,
         cpu_usage: process.cpu_usage,
     })
-}
-
-/// Returns sort priority for status (lower = higher priority in list)
-/// Active sessions (thinking/processing) appear first, then waiting, then idle
-pub fn status_sort_priority(status: &SessionStatus) -> u8 {
-    match status {
-        SessionStatus::Thinking => 0,   // Active - Claude is working - show first
-        SessionStatus::Processing => 0, // Active - tool is running - show first
-        SessionStatus::Waiting => 1,    // Needs attention - show second
-        SessionStatus::Idle => 2,       // Inactive - show last
-    }
-}
-
-pub fn determine_status(
-    last_msg_type: Option<&str>,
-    has_tool_use: bool,
-    has_tool_result: bool,
-    is_local_command: bool,
-    file_recently_modified: bool,
-) -> SessionStatus {
-    // Determine status based on the last message in the conversation:
-    // - If file is being actively modified (within last 3s) -> active state (Thinking or Processing)
-    // - If last message is user with tool_result -> Processing (tool just ran, Claude processing result)
-    // - If last message is from assistant with tool_use -> Processing (tool is being executed)
-    // - If last message is from assistant with only text -> Waiting (Claude finished, waiting for user)
-    // - If last message is from user -> Thinking (Claude is generating a response)
-    // - If last message is a local slash command (/clear, /help, etc.) -> Waiting (these don't trigger Claude)
-
-    // Key insight: Once an assistant text message (without tool_use) is written, Claude is done
-    // and waiting for user input, regardless of file modification time
-
-    match last_msg_type {
-        Some("assistant") => {
-            if has_tool_use {
-                // Assistant sent a tool_use, tool is executing
-                SessionStatus::Processing
-            } else {
-                // Assistant sent a text response - waiting for user input
-                // Once Claude sends text without tool_use, it's done and waiting
-                SessionStatus::Waiting
-            }
-        }
-        Some("user") => {
-            if is_local_command {
-                // Local slash commands like /clear, /help, /compact don't trigger Claude
-                // Session is waiting for actual user input
-                SessionStatus::Waiting
-            } else if has_tool_result {
-                // User message contains tool_result - tool execution complete,
-                // Claude is processing the result
-                if file_recently_modified {
-                    SessionStatus::Thinking
-                } else {
-                    // Tool result was sent but file not recently modified
-                    // This can happen if tool result was recent - show Processing
-                    SessionStatus::Processing
-                }
-            } else {
-                // Regular user input, Claude is thinking/generating response
-                SessionStatus::Thinking
-            }
-        }
-        _ => {
-            // No recognized message type - check if file is active
-            if file_recently_modified {
-                SessionStatus::Thinking
-            } else {
-                SessionStatus::Idle
-            }
-        }
-    }
 }

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use std::path::PathBuf;
 
+/// Represents a running Claude Code process
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ClaudeProcess {
     pub pid: u32,
@@ -10,6 +11,7 @@ pub struct ClaudeProcess {
     pub memory: u64,
 }
 
+/// Find all running Claude Code processes on the system
 pub fn find_claude_processes() -> Vec<ClaudeProcess> {
     // Refresh process info - use Always to detect newly spawned processes
     let mut system = System::new_with_specifics(
