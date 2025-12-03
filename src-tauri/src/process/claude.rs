@@ -36,8 +36,15 @@ pub fn find_claude_processes() -> Vec<ClaudeProcess> {
         )
     });
 
-    // Refresh process list
-    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    // Refresh process list with full details for new processes
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        ProcessRefreshKind::new()
+            .with_cmd(sysinfo::UpdateKind::Always)
+            .with_cwd(sysinfo::UpdateKind::Always)
+            .with_cpu()
+            .with_memory()
+    );
 
     let total_processes = system.processes().len();
     trace!("Total system processes: {}", total_processes);
