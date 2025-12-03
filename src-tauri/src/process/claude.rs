@@ -2,6 +2,7 @@ use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 /// Represents a running Claude Code process
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -12,20 +13,30 @@ pub struct ClaudeProcess {
     pub memory: u64,
 }
 
+// Reuse System instance to avoid expensive re-initialization
+static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
+
 /// Find all running Claude Code processes on the system
 pub fn find_claude_processes() -> Vec<ClaudeProcess> {
     debug!("=== Starting process discovery ===");
 
-    // Refresh process info - use Always to detect newly spawned processes
-    let mut system = System::new_with_specifics(
-        RefreshKind::new().with_processes(
-            ProcessRefreshKind::new()
-                .with_cmd(sysinfo::UpdateKind::Always)
-                .with_cwd(sysinfo::UpdateKind::Always)
-                .with_cpu()
-                .with_memory()
+    let mut system_guard = SYSTEM.lock().unwrap();
+
+    // Initialize system if not already done
+    let system = system_guard.get_or_insert_with(|| {
+        debug!("Initializing new System instance");
+        System::new_with_specifics(
+            RefreshKind::new().with_processes(
+                ProcessRefreshKind::new()
+                    .with_cmd(sysinfo::UpdateKind::Always)
+                    .with_cwd(sysinfo::UpdateKind::Always)
+                    .with_cpu()
+                    .with_memory()
+            )
         )
-    );
+    });
+
+    // Refresh process list
     system.refresh_processes(sysinfo::ProcessesToUpdate::All);
 
     let total_processes = system.processes().len();
