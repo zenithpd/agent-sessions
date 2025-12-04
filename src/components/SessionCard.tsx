@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { formatTimeAgo, truncatePath, statusConfig } from '@/lib/formatters';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 interface SessionCardProps {
   session: Session;
@@ -126,7 +127,7 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
     setIsUrlOpen(false);
   };
 
-  const handleOpenUrl = (e: React.MouseEvent) => {
+  const handleOpenUrl = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (customUrl) {
       // Add protocol if missing
@@ -134,7 +135,7 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
         url = 'http://' + url;
       }
-      window.open(url, '_blank');
+      await openUrl(url);
     }
   };
 
@@ -156,12 +157,12 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* URL Button - always visible if URL is set */}
+              {/* URL Button - visible on hover if URL is set */}
               {customUrl && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0 hover:bg-primary/10"
+                  className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10"
                   onClick={handleOpenUrl}
                   title={customUrl}
                 >
