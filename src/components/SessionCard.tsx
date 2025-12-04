@@ -24,8 +24,9 @@ interface SessionCardProps {
   onClick: () => void;
 }
 
-// Helper to get/set custom names from localStorage
+// Helper to get/set custom data from localStorage
 const CUSTOM_NAMES_KEY = 'agent-sessions-custom-names';
+const CUSTOM_URLS_KEY = 'agent-sessions-custom-urls';
 
 function getCustomNames(): Record<string, string> {
   try {
@@ -46,16 +47,40 @@ function setCustomName(sessionId: string, name: string) {
   localStorage.setItem(CUSTOM_NAMES_KEY, JSON.stringify(names));
 }
 
+function getCustomUrls(): Record<string, string> {
+  try {
+    const stored = localStorage.getItem(CUSTOM_URLS_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setCustomUrl(sessionId: string, url: string) {
+  const urls = getCustomUrls();
+  if (url.trim()) {
+    urls[sessionId] = url.trim();
+  } else {
+    delete urls[sessionId];
+  }
+  localStorage.setItem(CUSTOM_URLS_KEY, JSON.stringify(urls));
+}
+
 export function SessionCard({ session, onClick }: SessionCardProps) {
   const config = statusConfig[session.status];
   const [customName, setCustomNameState] = useState<string>('');
+  const [customUrl, setCustomUrlState] = useState<string>('');
   const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [isUrlOpen, setIsUrlOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [urlValue, setUrlValue] = useState('');
 
-  // Load custom name on mount
+  // Load custom data on mount
   useEffect(() => {
     const names = getCustomNames();
+    const urls = getCustomUrls();
     setCustomNameState(names[session.id] || '');
+    setCustomUrlState(urls[session.id] || '');
   }, [session.id]);
 
   const displayName = customName || session.projectName;
@@ -67,7 +92,6 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
 
   const handleSaveRename = () => {
     const newName = renameValue.trim();
-    // If the new name equals the original project name, clear custom name
     if (newName === session.projectName) {
       setCustomName(session.id, '');
       setCustomNameState('');
@@ -82,6 +106,36 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
     setCustomName(session.id, '');
     setCustomNameState('');
     setIsRenameOpen(false);
+  };
+
+  const handleSetUrl = () => {
+    setUrlValue(customUrl);
+    setIsUrlOpen(true);
+  };
+
+  const handleSaveUrl = () => {
+    const newUrl = urlValue.trim();
+    setCustomUrl(session.id, newUrl);
+    setCustomUrlState(newUrl);
+    setIsUrlOpen(false);
+  };
+
+  const handleClearUrl = () => {
+    setCustomUrl(session.id, '');
+    setCustomUrlState('');
+    setIsUrlOpen(false);
+  };
+
+  const handleOpenUrl = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (customUrl) {
+      // Add protocol if missing
+      let url = customUrl;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'http://' + url;
+      }
+      window.open(url, '_blank');
+    }
   };
 
   return (
@@ -102,6 +156,30 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* URL Button - always visible if URL is set */}
+              {customUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 hover:bg-primary/10"
+                  onClick={handleOpenUrl}
+                  title={customUrl}
+                >
+                  <svg
+                    className="w-4 h-4 text-primary"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
+                  </svg>
+                </Button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                   <Button
@@ -134,6 +212,22 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
                       />
                     </svg>
                     Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleSetUrl}>
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                      />
+                    </svg>
+                    {customUrl ? 'Edit URL' : 'Set URL'}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -206,6 +300,42 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
               Cancel
             </Button>
             <Button onClick={handleSaveRename}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* URL Dialog */}
+      <Dialog open={isUrlOpen} onOpenChange={setIsUrlOpen}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Set Development URL</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={urlValue}
+              onChange={(e) => setUrlValue(e.target.value)}
+              placeholder="e.g., localhost:3000"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSaveUrl();
+                }
+              }}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Quick access URL for this project (e.g., dev server)
+            </p>
+          </div>
+          <DialogFooter className="flex gap-2">
+            {customUrl && (
+              <Button variant="outline" onClick={handleClearUrl}>
+                Clear URL
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setIsUrlOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveUrl}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
