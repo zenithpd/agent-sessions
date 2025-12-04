@@ -1,7 +1,8 @@
 use crate::process::ClaudeProcess;
 use crate::session::{
     SessionStatus, parse_session_file, convert_dir_name_to_path,
-    determine_status, status_sort_priority, has_tool_use, has_tool_result, is_local_slash_command
+    determine_status, status_sort_priority, has_tool_use, has_tool_result, is_local_slash_command,
+    is_interrupted_request
 };
 use serde_json::json;
 use std::io::Write;
@@ -187,6 +188,7 @@ fn test_determine_status_assistant_with_tool_use() {
         true,  // has_tool_use
         false, // has_tool_result
         false, // is_local_command
+        false, // is_interrupted
         false, // file_recently_modified
     );
     assert!(matches!(status, SessionStatus::Processing));
@@ -195,6 +197,7 @@ fn test_determine_status_assistant_with_tool_use() {
     let status = determine_status(
         Some("assistant"),
         true,
+        false,
         false,
         false,
         true, // file_recently_modified
@@ -210,6 +213,7 @@ fn test_determine_status_assistant_text_only() {
         false, // no tool_use
         false,
         false,
+        false, // is_interrupted
         false,
     );
     assert!(matches!(status, SessionStatus::Waiting));
@@ -220,6 +224,7 @@ fn test_determine_status_assistant_text_only() {
         false,
         false,
         false,
+        false, // is_interrupted
         true, // file_recently_modified
     );
     assert!(matches!(status, SessionStatus::Waiting));
@@ -233,6 +238,7 @@ fn test_determine_status_user_message() {
         false,
         false,
         false, // not a local command
+        false, // is_interrupted
         false,
     );
     assert!(matches!(status, SessionStatus::Thinking));
@@ -243,6 +249,18 @@ fn test_determine_status_user_message() {
         false,
         false,
         true, // is_local_command
+        false, // is_interrupted
+        false,
+    );
+    assert!(matches!(status, SessionStatus::Waiting));
+
+    // User message that's an interrupted request -> Waiting
+    let status = determine_status(
+        Some("user"),
+        false,
+        false,
+        false,
+        true, // is_interrupted
         false,
     );
     assert!(matches!(status, SessionStatus::Waiting));
@@ -256,6 +274,7 @@ fn test_determine_status_user_with_tool_result() {
         false,
         true,  // has_tool_result
         false,
+        false, // is_interrupted
         true,  // file_recently_modified
     );
     assert!(matches!(status, SessionStatus::Thinking));
@@ -266,6 +285,7 @@ fn test_determine_status_user_with_tool_result() {
         false,
         true,  // has_tool_result
         false,
+        false, // is_interrupted
         false, // not recently modified
     );
     assert!(matches!(status, SessionStatus::Processing));
@@ -279,6 +299,7 @@ fn test_determine_status_unknown_type() {
         false,
         false,
         false,
+        false, // is_interrupted
         true, // file_recently_modified
     );
     assert!(matches!(status, SessionStatus::Thinking));
@@ -289,9 +310,28 @@ fn test_determine_status_unknown_type() {
         false,
         false,
         false,
+        false, // is_interrupted
         false,
     );
     assert!(matches!(status, SessionStatus::Idle));
+}
+
+#[test]
+fn test_is_interrupted_request() {
+    // Message with interruption text
+    assert!(is_interrupted_request(&json!("[Request interrupted by user]")));
+    assert!(is_interrupted_request(&json!("Some text [Request interrupted by user] more text")));
+
+    // Array content with interruption
+    let array_content = json!([
+        {"type": "text", "text": "[Request interrupted by user]"}
+    ]);
+    assert!(is_interrupted_request(&array_content));
+
+    // Normal messages
+    assert!(!is_interrupted_request(&json!("Hello Claude")));
+    assert!(!is_interrupted_request(&json!("Fix the bug")));
+    assert!(!is_interrupted_request(&json!("")));
 }
 
 #[test]
