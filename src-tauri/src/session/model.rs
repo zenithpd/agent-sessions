@@ -8,6 +8,7 @@ pub struct Session {
     pub project_name: String,
     pub project_path: String,
     pub git_branch: Option<String>,
+    pub github_url: Option<String>,
     pub status: SessionStatus,
     pub last_message: Option<String>,
     pub last_message_role: Option<String>,

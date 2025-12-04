@@ -5,6 +5,7 @@ export interface Session {
   projectName: string;
   projectPath: string;
   gitBranch: string | null;
+  githubUrl: string | null;
   status: SessionStatus;
   lastMessage: string | null;
   lastMessageRole: 'user' | 'assistant' | null;

@@ -3,10 +3,47 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::process::Command;
 
 use crate::process::ClaudeProcess;
 use super::model::{Session, SessionStatus, SessionsResponse, JsonlMessage};
 use super::status::{determine_status, has_tool_use, has_tool_result, is_local_slash_command, is_interrupted_request, status_sort_priority};
+
+/// Get GitHub URL from a project's git remote origin
+fn get_github_url(project_path: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(project_path)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let remote_url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Convert SSH format to HTTPS
+    // git@github.com:user/repo.git -> https://github.com/user/repo
+    if remote_url.starts_with("git@github.com:") {
+        let path = remote_url
+            .strip_prefix("git@github.com:")?
+            .strip_suffix(".git")
+            .unwrap_or(&remote_url[15..]);
+        return Some(format!("https://github.com/{}", path));
+    }
+
+    // Already HTTPS format
+    // https://github.com/user/repo.git -> https://github.com/user/repo
+    if remote_url.starts_with("https://github.com/") {
+        let url = remote_url
+            .strip_suffix(".git")
+            .unwrap_or(&remote_url);
+        return Some(url.to_string());
+    }
+
+    None
+}
 
 /// Convert a directory name like "-Users-ozan-Projects-ai-image-dashboard" back to a path
 /// The challenge is that both path separators AND project names can contain dashes
@@ -450,11 +487,15 @@ pub fn parse_session_file(jsonl_path: &PathBuf, project_path: &str, process: &Cl
         }
     });
 
+    // Get GitHub URL from git remote
+    let github_url = get_github_url(project_path);
+
     Some(Session {
         id: session_id,
         project_name,
         project_path: project_path.to_string(),
         git_branch,
+        github_url,
         status,
         last_message,
         last_message_role: last_role,
