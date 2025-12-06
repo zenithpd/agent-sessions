@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14] - 2025-12-06
+
+### Fixed
+- Improved status detection to prevent premature transition to "Waiting" while Claude is still streaming
+- Added stable session ordering in UI to prevent unnecessary reordering on each poll
+- Enhanced debug logging with status transition tracking and content previews
+
 ## [0.1.13] - 2025-12-06
 
 ### Added
