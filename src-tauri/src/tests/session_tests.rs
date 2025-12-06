@@ -7,6 +7,7 @@ use crate::session::{
 use serde_json::json;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::{SystemTime, Duration};
 use tempfile::NamedTempFile;
 
 // Helper functions
@@ -17,6 +18,17 @@ fn create_test_jsonl(lines: &[&str]) -> NamedTempFile {
         writeln!(file, "{}", line).unwrap();
     }
     file.flush().unwrap();
+    file
+}
+
+/// Create a test JSONL file with an old modification time (>3s ago)
+/// This ensures file_recently_modified = false in status determination
+fn create_test_jsonl_old(lines: &[&str]) -> NamedTempFile {
+    let file = create_test_jsonl(lines);
+    // Set modification time to 10 seconds ago
+    let old_time = SystemTime::now() - Duration::from_secs(10);
+    let old_time_file = filetime::FileTime::from_system_time(old_time);
+    filetime::set_file_mtime(file.path(), old_time_file).unwrap();
     file
 }
 
@@ -218,7 +230,7 @@ fn test_determine_status_assistant_text_only() {
     );
     assert!(matches!(status, SessionStatus::Waiting));
 
-    // Even if file was recently modified, text-only assistant message means Waiting
+    // If file was recently modified, treat as Processing (Claude may still be streaming)
     let status = determine_status(
         Some("assistant"),
         false,
@@ -227,7 +239,7 @@ fn test_determine_status_assistant_text_only() {
         false, // is_interrupted
         true, // file_recently_modified
     );
-    assert!(matches!(status, SessionStatus::Waiting));
+    assert!(matches!(status, SessionStatus::Processing));
 }
 
 #[test]
@@ -375,9 +387,9 @@ fn test_session_status_serialization() {
 
 #[test]
 fn test_parse_jsonl_assistant_text_only_is_waiting() {
-    // Scenario: Claude responded with text only (no tool_use)
+    // Scenario: Claude responded with text only (no tool_use), file not recently modified
     // Expected: Waiting
-    let jsonl = create_test_jsonl(&[
+    let jsonl = create_test_jsonl_old(&[
         r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"Hello Claude"},"timestamp":"2024-01-01T00:00:00Z"}"#,
         r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello! How can I help you today?"}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
     ]);
@@ -469,8 +481,9 @@ fn test_parse_jsonl_local_command_is_waiting() {
 #[test]
 fn test_parse_jsonl_complex_conversation_flow() {
     // Scenario: Complex conversation - user asks, Claude responds with tool, tool runs, Claude responds with text
+    // File is old (not recently modified)
     // Expected: Waiting (Claude finished with text response)
-    let jsonl = create_test_jsonl(&[
+    let jsonl = create_test_jsonl_old(&[
         r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"What files are in this directory?"},"timestamp":"2024-01-01T00:00:00Z"}"#,
         r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool1","name":"Bash","input":{"command":"ls -la"}}]},"timestamp":"2024-01-01T00:00:01Z"}"#,
         r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool1","content":"file1.txt\nfile2.txt"}]},"timestamp":"2024-01-01T00:00:02Z"}"#,
@@ -507,7 +520,8 @@ fn test_parse_jsonl_multiple_tool_calls_in_progress() {
 #[test]
 fn test_parse_jsonl_empty_content_skipped() {
     // Scenario: Some messages have empty content, should skip to find real message
-    let jsonl = create_test_jsonl(&[
+    // File is old (not recently modified)
+    let jsonl = create_test_jsonl_old(&[
         r#"{"sessionId":"test-session","type":"user","message":{"role":"user","content":"Hello"},"timestamp":"2024-01-01T00:00:00Z"}"#,
         r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[]},"timestamp":"2024-01-01T00:00:01Z"}"#,
         r#"{"sessionId":"test-session","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi there!"}]},"timestamp":"2024-01-01T00:00:02Z"}"#,
