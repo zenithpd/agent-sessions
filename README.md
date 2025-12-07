@@ -13,7 +13,7 @@ A macOS desktop app to monitor all running Claude Code sessions.
 
 - View all active Claude Code sessions in one place
 - Real-time status detection (Thinking, Processing, Waiting, Idle)
-- Global hotkey to toggle visibility (configurable)
+- Global hotkey to toggle visibility (default: `Ctrl+Space`, configurable)
 - Click to focus on a specific session's terminal
 - Custom session names (rename via kebab menu)
 - Quick access URL for each session (e.g., dev server links)
