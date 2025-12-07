@@ -1,6 +1,6 @@
 use crate::process::ClaudeProcess;
 use crate::session::{
-    SessionStatus, parse_session_file, convert_dir_name_to_path,
+    SessionStatus, parse_session_file, convert_dir_name_to_path, convert_path_to_dir_name,
     determine_status, status_sort_priority, has_tool_use, has_tool_result, is_local_slash_command,
     is_interrupted_request
 };
@@ -79,6 +79,37 @@ fn test_convert_dir_name_to_path() {
     assert_eq!(
         convert_dir_name_to_path("-Users-ozan-Projects"),
         "/Users/ozan/Projects"
+    );
+
+    // Note: These test cases would fail with convert_dir_name_to_path because
+    // the encoding is ambiguous. The reverse lookup via convert_path_to_dir_name
+    // is used for matching instead.
+}
+
+#[test]
+fn test_convert_path_to_dir_name() {
+    // Basic path
+    assert_eq!(
+        convert_path_to_dir_name("/Users/ozan/Projects/ai-image-dashboard"),
+        "-Users-ozan-Projects-ai-image-dashboard"
+    );
+
+    // Path with hidden folder (.rsworktree)
+    assert_eq!(
+        convert_path_to_dir_name("/Users/ozan/Projects/unity-build-service/.rsworktree/improve-prov-prof-creation"),
+        "-Users-ozan-Projects-unity-build-service--rsworktree-improve-prov-prof-creation"
+    );
+
+    // Path with .worktrees
+    assert_eq!(
+        convert_path_to_dir_name("/Users/ozan/Projects/autogoals-v2/.worktrees/docker-containers"),
+        "-Users-ozan-Projects-autogoals-v2--worktrees-docker-containers"
+    );
+
+    // Subfolder path (no hidden folders)
+    assert_eq!(
+        convert_path_to_dir_name("/Users/ozan/Projects/autogoals-v2/examples/test"),
+        "-Users-ozan-Projects-autogoals-v2-examples-test"
     );
 }
 

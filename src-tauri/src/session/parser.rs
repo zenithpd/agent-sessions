@@ -67,6 +67,36 @@ fn get_github_url(project_path: &str) -> Option<String> {
     None
 }
 
+/// Convert a file system path like "/Users/ozan/Projects/my-project" to a directory name
+/// This is the reverse of convert_dir_name_to_path
+/// e.g., "/Users/ozan/Projects/my-project/.rsworktree/branch-name" -> "-Users-ozan-Projects-my-project--rsworktree-branch-name"
+pub fn convert_path_to_dir_name(path: &str) -> String {
+    // Remove leading slash and replace path separators with dashes
+    let path = path.strip_prefix('/').unwrap_or(path);
+
+    let mut result = String::from("-");
+    let mut chars = path.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '/' => {
+                // Check if next char starts a hidden folder (.)
+                if chars.peek() == Some(&'.') {
+                    // Hidden folder: use double dash and skip the dot
+                    result.push('-');
+                    result.push('-');
+                    chars.next(); // skip the dot
+                } else {
+                    result.push('-');
+                }
+            }
+            _ => result.push(c),
+        }
+    }
+
+    result
+}
+
 /// Convert a directory name like "-Users-ozan-Projects-ai-image-dashboard" back to a path
 /// The challenge is that both path separators AND project names can contain dashes
 /// We handle this by recognizing that the path structure is predictable:
@@ -201,17 +231,29 @@ pub fn get_sessions() -> SessionsResponse {
                 .unwrap_or("");
 
             let project_path = convert_dir_name_to_path(dir_name);
-            trace!("Checking project: {} -> {}", dir_name, project_path);
+            debug!("Checking project: {} -> {}", dir_name, project_path);
 
             // Check if this project has active Claude processes
-            let processes = match cwd_to_processes.get(&project_path) {
-                Some(p) => {
-                    debug!("Project {} has {} active processes", project_path, p.len());
-                    p
-                },
-                None => {
-                    trace!("Project {} has no active processes, skipping", project_path);
-                    continue;
+            // First try exact match
+            let processes = if let Some(p) = cwd_to_processes.get(&project_path) {
+                debug!("Project {} has {} active processes (exact match)", project_path, p.len());
+                p
+            } else {
+                // Try to find a matching cwd by converting each cwd to a dir name and comparing
+                let matching_cwd = cwd_to_processes.keys().find(|cwd| {
+                    let cwd_as_dir = convert_path_to_dir_name(cwd);
+                    cwd_as_dir == dir_name
+                });
+
+                match matching_cwd {
+                    Some(cwd) => {
+                        debug!("Project {} matched via reverse lookup to cwd {}", dir_name, cwd);
+                        cwd_to_processes.get(cwd).unwrap()
+                    }
+                    None => {
+                        trace!("Project {} has no active processes, skipping", project_path);
+                        continue;
+                    }
                 }
             };
 
